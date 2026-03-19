@@ -21,7 +21,7 @@ import java.util.*;public class Main {
         File file = new File(DATA_FILE);
         List<Map<String, Object>> dataList = loadData(file, mapper);
 
-        int pageCount = 2;
+        int pageCount = 3;
         try {
             for (int page = 1; page < pageCount; page++) {
                 scrapePage(driver, page, dataList);
