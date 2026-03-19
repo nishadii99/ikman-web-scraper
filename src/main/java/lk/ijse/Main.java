@@ -9,105 +9,126 @@ import org.openqa.selenium.io.FileHandler;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;public class Main {
 
-//TIP To <b>Run</b> code, press <shortcut actionId="Run"/> or
-// click the <icon src="AllIcons.Actions.Execute"/> icon in the gutter.
-public class Main {
-    public static boolean checUrlExist(String targetLink, List<Map<String, Object>> list) {
-        boolean exists = false;
+    private static final String DATA_FILE = "data.json";
 
-        for (Map<String, Object> item : list) {
-            String link = (String) item.get("item_link");
-
-            if (targetLink.equals(link)) {
-                exists = true;
-                break;
-            }
-        }
-
-        if (exists) {
-            System.out.println("Link already exists!");
-        } else {
-            System.out.println("New link, safe to add.");
-        }
-        return exists;
-    }
-    public static void main(String[] args) throws InterruptedException, IOException {
-
+    public static void main(String[] args) throws IOException, InterruptedException {
         WebDriverManager.chromedriver().setup();
         WebDriver driver = new ChromeDriver();
         ObjectMapper mapper = new ObjectMapper();
-        File file = new File("data.json");
-        List<Map<String, Object>> list;
+
+        File file = new File(DATA_FILE);
+        List<Map<String, Object>> dataList = loadData(file, mapper);
+
         int pageCount = 2;
         try {
-            for  (int i = 1; i < pageCount; i++) {
-                driver.get("https://ikman.lk/en/ads?page="+i);
-                String title = driver.getTitle();
-                System.out.printf("Title: %s\n", title);
-
-                List<WebElement> elements = driver.findElements(By.className("gtm-normal-ad"));
-                List<String> links = new ArrayList<>();
-                for (WebElement element : elements) {
-                    WebElement link = element.findElement(By.tagName("a"));
-                    String href = link.getAttribute("href");
-                    links.add(href);
-                }
-                for (String link : links) {
-                    if (file.exists()) {
-                        list = mapper.readValue(file, new TypeReference<List<Map<String, Object>>>() {
-                        });
-                    } else {
-                        list = new ArrayList<>();
-                    }
-                    if (checUrlExist(link, list)) continue;
-                    driver.get(link);
-                    System.out.println(link);
-
-                    try {
-                        driver.findElement(By.className("title--1ku7l"));
-                        continue;
-                    } catch (Exception e) {
-                    }
-                    System.out.println(driver.getTitle());
-                    String item_name = driver.findElement(By.className("title--3s1R8")).getAttribute("innerHTML");
-                    System.out.println(item_name);
-                    driver.findElement(By.xpath("//*[@id=\"app-wrapper\"]/div[1]/div[2]/div[2]/div[3]/div[2]/div/div[2]/div/div/div[1]/div[2]/div[1]/button/div[2]")).click();
-
-                    List<WebElement> elements1 = driver.findElements(By.className("phone-numbers--2COKR"));
-                    List<String> phones = new ArrayList<>();
-                    for (WebElement element : elements1) {
-                        String phone = element.getAttribute("innerHTML");
-                        System.out.println(phone);
-                        phones.add(phone);
-                    }
-                    String name = driver.findElement(By.className("contact-name--m97Sb")).getAttribute("innerHTML");
-                    System.out.println(name);
-                    Map<String, Object> newItem = new HashMap<>();
-                    newItem.put("name", name);
-                    newItem.put("item_name", item_name);
-                    newItem.put("item_link", link);
-                    newItem.put("phones", phones);
-
-                    list.add(newItem);
-                    mapper.writerWithDefaultPrettyPrinter().writeValue(file, list);
-                }
+            for (int page = 1; page < pageCount; page++) {
+                scrapePage(driver, page, dataList);
+                saveData(file, mapper, dataList); // save after each page
             }
         } catch (Exception e) {
-            TakesScreenshot ts = (TakesScreenshot) driver;
-            File src = ts.getScreenshotAs(OutputType.FILE);
-
-            String fileName = "error" + System.currentTimeMillis() + ".png";
-
-            File dest = new File(fileName);
-            FileHandler.copy(src, dest);
+            takeScreenshot(driver);
             throw new RuntimeException(e);
         } finally {
             driver.quit();
+        }
+    }
+
+    public static List<Map<String, Object>> loadData(File file, ObjectMapper mapper) throws IOException {
+        if (file.exists()) {
+            return mapper.readValue(file, new TypeReference<List<Map<String, Object>>>() {});
+        } else {
+            return new ArrayList<>();
+        }
+    }
+
+    public static void saveData(File file, ObjectMapper mapper, List<Map<String, Object>> dataList) throws IOException {
+        mapper.writerWithDefaultPrettyPrinter().writeValue(file, dataList);
+    }
+
+    private static void scrapePage(WebDriver driver, int page, List<Map<String, Object>> dataList) {
+        String url = "https://ikman.lk/en/ads?page=" + page;
+        driver.get(url);
+
+        System.out.println("Page: " + page + " | Title: " + driver.getTitle());
+
+        List<WebElement> ads = driver.findElements(By.className("normal--2QYVk"));
+
+        List<String> links = new ArrayList<>();
+
+        for (WebElement ad : ads) {
+            try {
+                String link = ad.findElement(By.tagName("a")).getAttribute("href");
+                System.out.println("Found link: " + link);
+
+                links.add(link);
+            } catch (Exception ignored) {}
+        }
+        for (String link : links) {
+            System.out.println("Visiting: " + link);
+
+            if (urlExists(link, dataList)) continue;
+            driver.get(link);
+            scrapeItem(driver, link, dataList);
+        }
+    }
+
+    public static boolean urlExists(String targetLink, List<Map<String, Object>> dataList) {
+        for (Map<String, Object> item : dataList) {
+            if (targetLink.equals(item.get("item_link"))) {
+                System.out.println("Link already exists: " + targetLink);
+                return true;
+            }
+        }
+        System.out.println("New link found: " + targetLink);
+        return false;
+    }
+
+    private static void scrapeItem(WebDriver driver, String link, List<Map<String, Object>> dataList) {
+        try {
+            System.out.println("Scraping: " + link);
+
+            if (!driver.findElements(By.className("title--3s1R8")).isEmpty()) {
+                String itemName = driver.findElement(By.className("title--3s1R8")).getText();
+                String name = driver.findElement(By.className("contact-name--m97Sb")).getText();
+
+
+                List<WebElement> phoneButtons = driver.findElements(By.className("contact-number--jkttb"));
+                if (!phoneButtons.isEmpty()) phoneButtons.get(0).click();
+
+
+                List<WebElement> phoneElements = driver.findElements(By.className("phone-numbers--2COKR"));
+                System.out.println(phoneElements.size());
+                List<String> phones = new ArrayList<>();
+                for (WebElement phoneEl : phoneElements) {
+                    phones.add(phoneEl.getText());
+                }
+
+                Map<String, Object> newItem = new HashMap<>();
+                newItem.put("name", name);
+                newItem.put("item_name", itemName);
+                newItem.put("item_link", link);
+                newItem.put("phones", phones);
+
+                dataList.add(newItem);
+                System.out.println("Saved item: " + itemName);
+            }
+
+        } catch (Exception e) {
+            System.err.println("Failed to scrape item: " + link);
+        }
+    }
+
+    private static void takeScreenshot(WebDriver driver) {
+        try {
+            TakesScreenshot ts = (TakesScreenshot) driver;
+            File src = ts.getScreenshotAs(OutputType.FILE);
+            String fileName = "error_" + System.currentTimeMillis() + ".png";
+            FileHandler.copy(src, new File(fileName));
+            System.out.println("Screenshot saved: " + fileName);
+        } catch (IOException ex) {
+            ex.printStackTrace();
         }
     }
 }
